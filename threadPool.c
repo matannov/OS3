@@ -29,6 +29,7 @@ void tpThreadRunner(void* pool) {
 			pthread_mutex_unlock(&(tp->task_queue_mutex));
 			pthread_cond_broadcast(&(tp->work_available_cond));
 			func_info->computeFunc(func_info->param);
+			free(func_info);
 		}
 		while ( pthread_mutex_lock(&(tp->work_available_cond_mutex)) ) { }
 		pthread_cond_wait(&(tp->work_available_cond), &(tp->work_available_cond_mutex));
