@@ -21,9 +21,9 @@ void tpThreadRunner(void* pool) {
 	FuncAndParam* func_info = NULL;
 	ThreadPool* tp = (ThreadPool*) pool;
 	while (1) {
-		printf("while 1\n");
+		/* printf("while 1\n"); */
 		if (tp->currently_dying) {
-			printf("dead thread %d\n", dead_threads++);
+			/* printf("dead thread %d\n", dead_threads++); */
 			return;
 		}
 		while (tp->work_available && !pthread_mutex_lock(&(tp->task_queue_mutex))) {
@@ -36,17 +36,21 @@ void tpThreadRunner(void* pool) {
 			func_info->computeFunc(func_info->param);
 			free(func_info);
 		}
-		while ( pthread_mutex_lock(&(tp->work_available_cond_mutex)) ) { printf("while 2\n"); }
-		printf("waiting for job 1\n");
+		// while ( pthread_mutex_lock(&(tp->work_available_cond_mutex)) ) { /* printf("while 2\n"); */ }
+		/* printf("waiting for job 1\n"); */
+		if (tp->currently_dying) {
+			/* printf("dead thread %d\n", dead_threads++); */
+			return;
+		}
 		pthread_cond_wait(&(tp->work_available_cond), &(tp->work_available_cond_mutex));
 		pthread_mutex_unlock(&(tp->work_available_cond_mutex));
-		printf("finish waiting for job \n");
+		/* printf("finish waiting for job \n"); */
 	}
 }
 
 
 static void tpKiller(ThreadPool* threadPool) {
-	printf("killer instinct\n");
+	/* printf("killer instinct\n"); */
 	pthread_cond_broadcast(&(threadPool->kill_cond));
 }
 
@@ -60,6 +64,7 @@ ThreadPool* tpCreate(int numOfThreads) {
 	tp->num_threads = numOfThreads;
 	tp->work_available = false;
 	tp->currently_dying = false;
+	tp->kill_called = false;
 	
 	
 	tp->task_queue = osCreateQueue();
@@ -75,9 +80,9 @@ ThreadPool* tpCreate(int numOfThreads) {
 	tp->threads = (pthread_t*)calloc(numOfThreads, sizeof(pthread_t*));
 	for (i = 0; i < numOfThreads; i++) {
 		err = pthread_create(tp->threads + i, NULL, (void *)tpThreadRunner, tp);
-		printf("made a thread!\n");
+		/* printf("made a thread!\n"); */
 		if (err != 0) { 
-			printf("we're fucked");
+			/* printf("we're fucked"); */
 			for (j = 0; j < i; j++) {
 				pthread_cancel(tp->threads[j]);
 			}
@@ -85,39 +90,45 @@ ThreadPool* tpCreate(int numOfThreads) {
 		}
 	}
 	
-	printf("made tp\n");
+	/* printf("made tp\n"); */
 	
 	return tp;
 }
 
 void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	int i = 0;
+	/* printf("destroy stage0 \n"); */
+	if (threadPool->kill_called) {
+		return;
+	}
+	threadPool->kill_called = true;
 	FuncAndParam* func_info = (FuncAndParam*)calloc(1, sizeof(*func_info));
 	func_info->computeFunc = (void*)tpKiller;
 	func_info->param = threadPool;
-	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) {  printf("while 3\n"); } // must be first to get lock
+	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) {  } // must be first to get lock
 	if (!shouldWaitForTasks) {
-		while (osDequeue(threadPool->task_queue)) { printf("while 4\n");  }
+		while (osDequeue(threadPool->task_queue)) { /* printf("while 4\n"); */  }
 	}
-	printf("destroy stage1 \n");
+	/* printf("destroy stage1 \n"); */
 	
 	osEnqueue(threadPool->task_queue, func_info);
 	threadPool->work_available = true;
 	pthread_mutex_unlock(&(threadPool->task_queue_mutex));
 	pthread_cond_broadcast(&(threadPool->work_available_cond));
-	printf("destroy stage2 \n");
+	/* printf("destroy stage2 \n"); */
 	pthread_mutex_lock(&(threadPool->kill_cond_mutex));
-	printf("waiting 2\n");
+	/* printf("waiting 2\n"); */
 	pthread_cond_wait(&(threadPool->kill_cond), &(threadPool->kill_cond_mutex));
-	printf("finish waiting 2\n");
+	pthread_mutex_unlock(&(threadPool->kill_cond_mutex));
+	/* printf("finish waiting 2\n"); */
 	threadPool->currently_dying = true;
 	
 	osDestroyQueue(threadPool->task_queue);
 	for (i = 0; i < threadPool->num_threads; i++) {
 		pthread_cond_broadcast(&(threadPool->work_available_cond));
-		printf("joinin1 \n");
+		/* printf("joinin1 \n"); */
 		pthread_join(threadPool->threads[i], NULL);
-		printf("finish join \n");
+		/* printf("finish join \n"); */
 	}
 	
 	pthread_mutex_destroy(&(threadPool->dying_tp_mutex));
@@ -128,17 +139,20 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	pthread_cond_destroy(&(threadPool->kill_cond));
 	free(threadPool->threads);
 	free(threadPool);
-	printf("destroy stage9 \n");
+	/* printf("destroy stage9 \n"); */
 }
 
 
 int tpInsertTask(ThreadPool* threadPool, void (*computeFunc)(void *),
         void* param) {
+	if (threadPool->kill_called) {
+		return -1;
+	}
 	bool queue_was_empty = false;
 	FuncAndParam* func_info = (FuncAndParam*)calloc(1, sizeof(*func_info));
 	func_info->computeFunc = computeFunc;
 	func_info->param = param;
-	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) { printf("while 5\n"); } // FIXME: should not be busy wait
+	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) { } // FIXME: should not be busy wait
 	osEnqueue(threadPool->task_queue, func_info);
 	threadPool->work_available = true;
 	pthread_mutex_unlock(&(threadPool->task_queue_mutex));

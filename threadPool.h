@@ -7,7 +7,7 @@
 
 typedef struct thread_pool {
 	int	 num_threads;
-	bool currently_dying, work_available;
+	bool currently_dying, work_available, kill_called;
 	
 	pthread_t* threads;
 	OSQueue* task_queue;
