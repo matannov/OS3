@@ -499,7 +499,7 @@ int main()
 
 
    printf("test_agressive, this might take a while...\n");
-  // test_agressive();
+   test_agressive();
 
 
    printf("test_single_thread_many_tasks...\n");

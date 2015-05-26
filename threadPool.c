@@ -26,7 +26,7 @@ void tpThreadRunner(void* pool) {
 			printf("dead thread %d\n", dead_threads++);
 			return;
 		}
-		if (tp->work_available && !pthread_mutex_lock(&(tp->task_queue_mutex))) {
+		while (tp->work_available && !pthread_mutex_lock(&(tp->task_queue_mutex))) {
 			func_info = (FuncAndParam*) osDequeue(tp->task_queue);
 			if (osIsQueueEmpty(tp->task_queue)) {
 				tp->work_available = false;
