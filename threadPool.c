@@ -21,23 +21,17 @@ void tpThreadRunner(void* pool) {
 		if (tp->currently_dying) {
 			return;
 		}
-		if (tp->work_available) {
-			if (!pthread_mutex_lock(&(tp->task_queue_mutex))) {
-				func_info = (FuncAndParam*) osDequeue(tp->task_queue);
-				if (osIsQueueEmpty(tp->task_queue)) {
-					tp->work_available = false;
-				}
-				pthread_mutex_unlock(&(tp->task_queue_mutex));
-				pthread_cond_broadcast(&(tp->work_available_cond));
-				func_info->computeFunc(func_info->param);
+		if (tp->work_available && !pthread_mutex_lock(&(tp->task_queue_mutex))) {
+			func_info = (FuncAndParam*) osDequeue(tp->task_queue);
+			if (osIsQueueEmpty(tp->task_queue)) {
+				tp->work_available = false;
 			}
-			pthread_cond_wait(&(tp->work_available_cond), &(tp->work_available_cond_mutex));
-			pthread_mutex_unlock(&(tp->work_available_cond_mutex));
+			pthread_mutex_unlock(&(tp->task_queue_mutex));
+			pthread_cond_broadcast(&(tp->work_available_cond));
+			func_info->computeFunc(func_info->param);
 		}
-		else {
-			pthread_cond_wait(&(tp->work_available_cond), &(tp->work_available_cond_mutex));
-			pthread_mutex_unlock(&(tp->work_available_cond_mutex));
-		}
+		while ( pthread_mutex_lock(&(tp->work_available_cond_mutex)) ) { }
+		pthread_cond_wait(&(tp->work_available_cond), &(tp->work_available_cond_mutex));
 	}
 }
 
@@ -87,7 +81,7 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	FuncAndParam* func_info = (FuncAndParam*)calloc(1, sizeof(*func_info));
 	func_info->computeFunc = (void*)tpKiller;
 	func_info->param = threadPool;
-	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) {   }
+	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) {   } // must be first to get lock
 	if (!shouldWaitForTasks) {
 		while (osDequeue(threadPool->task_queue)) {   }
 	}
@@ -95,16 +89,17 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	threadPool->work_available = true;
 	pthread_mutex_unlock(&(threadPool->task_queue_mutex));
 	pthread_cond_broadcast(&(threadPool->work_available_cond));
+	pthread_mutex_lock(&(threadPool->kill_cond_mutex));
 	pthread_cond_wait(&(threadPool->kill_cond), &(threadPool->kill_cond_mutex));
 	threadPool->currently_dying = true;
 	threadPool->work_available = false;
 	
 	osDestroyQueue(threadPool->task_queue);
 	for (i = 0; i < threadPool->num_threads; i++) {
-		 
 		pthread_cond_broadcast(&(threadPool->work_available_cond));
 		pthread_join(threadPool->threads[i], NULL);
 	}
+	
 	pthread_mutex_destroy(&(threadPool->dying_tp_mutex));
 	pthread_mutex_destroy(&(threadPool->task_queue_mutex));
 	pthread_mutex_destroy(&(threadPool->work_available_cond_mutex));
@@ -123,7 +118,7 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc)(void *),
 	FuncAndParam* func_info = (FuncAndParam*)calloc(1, sizeof(*func_info)); // FIXME: when to free this??
 	func_info->computeFunc = computeFunc;
 	func_info->param = param;
-	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) {   }
+	while (pthread_mutex_lock(&(threadPool->task_queue_mutex))) { } // FIXME: should not be busy wait
 	osEnqueue(threadPool->task_queue, func_info);
 	threadPool->work_available = true;
 	pthread_mutex_unlock(&(threadPool->task_queue_mutex));
